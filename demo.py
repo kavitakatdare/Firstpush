@@ -1,30 +1,153 @@
-#myvar="any name"
-#print(myvar)
-#str1="john"
-#str2="Doe"
-#print("Hello  {} {} ".format(str1,str2))
-#print(f"Hello {str1} {str2}")
-#var="kavitaKatdare@yahoo.in"
-#print(var[:-9])
-#print(var[:10])
+import os
+import numpy as np
+from bosdyn.api.graph_nav import map_pb2
+from bosdyn.client.math_helpers import SE3Pose
 
-#name =input("Enter your name:")
-#print(f"Hello {name}")
-#name =input("Enter your name:")
-#print(f"Hello {name}")
+import rclpy
+from rclpy.node import Node
+from visualization_msgs.msg import Marker, MarkerArray
+from geometry_msgs.msg import Point
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs_py import point_cloud2
 
-#str1=input("Enter ur num:")
-#print(f"length of ur num is {int(len(str1))} and square is {int(str1**2)}")
+class GraphNavToRviz(Node):
+    def __init__(self, map_path):
+        super().__init__('graph_nav_to_rviz')
+        self.marker_pub = self.create_publisher(MarkerArray, 'graph_nav_map', 10)
+        self.cloud_pub = self.create_publisher(PointCloud2, 'graph_nav_cloud', 10)
 
-#LIST
-#mylist = [1,2,3,4]
-#print(mylist[1])
+        self.get_logger().info(f"Loading map from {map_path}")
+        self.graph, self.waypoints, self.snapshots, self.edges = self.load_map(map_path)
+        self.visualize_graph()
 
-#a="00000000000hello"
-#print(a.lstrip('0'))
+    def load_map(self, path):
+        """Load the map data from the provided directory."""
+        graph = map_pb2.Graph()
 
-#mystr ="s1 s2 s3 s4"
-#print(mystr.split(" "))
+        # Load the graph
+        graph_file = os.path.join(path, 'graph')
+        if not os.path.exists(graph_file):
+            self.get_logger().error(f"Graph file not found at {graph_file}")
+            self.destroy_node()
+            return
 
-mystr="s1 s2 s3 s4"
-('-').join(mystr)
+        with open(graph_file, 'rb') as gf:
+            graph.ParseFromString(gf.read())
+        self.get_logger().info(f"Loaded graph with {len(graph.waypoints)} waypoints and {len(graph.edges)} edges.")
+
+        # Load waypoint snapshots
+        snapshots = {}
+        for waypoint in graph.waypoints:
+            if waypoint.snapshot_id:
+                snapshot_file = os.path.join(path, 'waypoint_snapshots', waypoint.snapshot_id)
+                if os.path.exists(snapshot_file):
+                    with open(snapshot_file, 'rb') as sf:
+                        snapshot = map_pb2.WaypointSnapshot()
+                        snapshot.ParseFromString(sf.read())
+                        snapshots[snapshot.id] = snapshot
+        self.get_logger().info(f"Loaded {len(snapshots)} waypoint snapshots.")
+
+        # Load edge snapshots
+        edges = {}
+        for edge in graph.edges:
+            if edge.snapshot_id:
+                edge_file = os.path.join(path, 'edge_snapshots', edge.snapshot_id)
+                if os.path.exists(edge_file):
+                    with open(edge_file, 'rb') as ef:
+                        edge_snapshot = map_pb2.EdgeSnapshot()
+                        edge_snapshot.ParseFromString(ef.read())
+                        edges[edge_snapshot.id] = edge_snapshot
+        self.get_logger().info(f"Loaded {len(edges)} edge snapshots.")
+
+        return graph, {wp.id: wp for wp in graph.waypoints}, snapshots, edges
+
+    def visualize_graph(self):
+        """Publish GraphNav map data as Rviz markers."""
+        marker_array = MarkerArray()
+        marker_id = 0
+
+        # Visualize waypoints
+        for waypoint_id, waypoint in self.waypoints.items():
+            pose = SE3Pose.from_proto(waypoint.waypoint_tform_ko)
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "waypoints"
+            marker.id = marker_id
+            marker_id += 1
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
+            marker.pose.position.x = pose.x
+            marker.pose.position.y = pose.y
+            marker.pose.position.z = pose.z
+            marker.scale.x = 0.2
+            marker.scale.y = 0.2
+            marker.scale.z = 0.2
+            marker.color.r = 0.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+            marker.color.a = 1.0
+            marker_array.markers.append(marker)
+
+        # Visualize edges
+        for edge in self.graph.edges:
+            from_wp = self.waypoints[edge.id.from_waypoint]
+            to_wp = self.waypoints[edge.id.to_waypoint]
+
+            from_pose = SE3Pose.from_proto(from_wp.waypoint_tform_ko)
+            to_pose = SE3Pose.from_proto(to_wp.waypoint_tform_ko)
+
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "edges"
+            marker.id = marker_id
+            marker_id += 1
+            marker.type = Marker.LINE_STRIP
+            marker.action = Marker.ADD
+            marker.scale.x = 0.05
+            marker.color.r = 1.0
+            marker.color.g = 1.0
+            marker.color.b = 1.0
+            marker.color.a = 1.0
+
+            # Add points for the edge
+            marker.points.append(Point(x=from_pose.x, y=from_pose.y, z=from_pose.z))
+            marker.points.append(Point(x=to_pose.x, y=to_pose.y, z=to_pose.z))
+            marker_array.markers.append(marker)
+
+        # Publish markers
+        self.marker_pub.publish(marker_array)
+
+        # Visualize point clouds
+        for snapshot_id, snapshot in self.snapshots.items():
+            for cloud in snapshot.point_clouds:
+                self.publish_point_cloud(cloud)
+
+    def publish_point_cloud(self, cloud_data):
+        """Convert a Numpy point cloud to a PointCloud2 message and publish."""
+        points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
+        header = self.get_clock().now().to_msg()
+        header.frame_id = "map"
+        cloud_msg = point_cloud2.create_cloud_xyz32(header, points.tolist())
+        self.cloud_pub.publish(cloud_msg)
+
+
+def main():
+    rclpy.init()
+
+    # Parse the map path argument
+    import argparse
+    parser = argparse.ArgumentParser(description="Visualize GraphNav map in Rviz2.")
+    parser.add_argument('map_path', type=str, help='Path to the GraphNav map directory.')
+    args = parser.parse_args()
+
+    # Run the node
+    node = GraphNavToRviz(args.map_path)
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
