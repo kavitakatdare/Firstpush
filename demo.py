@@ -9,6 +9,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Header
+import open3d as o3d
 
 class GraphNavToRviz(Node):
     def __init__(self, map_path):
@@ -18,7 +20,12 @@ class GraphNavToRviz(Node):
 
         self.get_logger().info(f"Loading map from {map_path}")
         self.graph, self.waypoints, self.snapshots, self.edges = self.load_map(map_path)
-        self.visualize_graph()
+
+        try:
+            self.visualize_graph()
+            self.convert_map_to_pcl(map_path)
+        except Exception as e:
+            self.get_logger().error(f"Error during visualization or PCL conversion: {e}")
 
     def load_map(self, path):
         """Load the map data from the provided directory."""
@@ -121,16 +128,54 @@ class GraphNavToRviz(Node):
 
         # Visualize point clouds
         for snapshot_id, snapshot in self.snapshots.items():
-            for cloud in snapshot.point_clouds:
-                self.publish_point_cloud(cloud)
+            if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:  # Check if point_cloud exists and has data
+                self.publish_point_cloud(snapshot.point_cloud, snapshot_id)
 
-    def publish_point_cloud(self, cloud_data):
+    def publish_point_cloud(self, cloud_data, snapshot_id):
         """Convert a Numpy point cloud to a PointCloud2 message and publish."""
-        points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
-        header = self.get_clock().now().to_msg()
-        header.frame_id = "map"
-        cloud_msg = point_cloud2.create_cloud_xyz32(header, points.tolist())
-        self.cloud_pub.publish(cloud_msg)
+        try:
+            points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
+            self.get_logger().info(f"Publishing point cloud for snapshot {snapshot_id} with {len(points)} points.")
+
+            # Create a Header object with frame_id and timestamp
+            header = Header()
+            header.stamp = self.get_clock().now().to_msg()
+            header.frame_id = "map"
+
+            # Create and publish the PointCloud2 message
+            cloud_msg = point_cloud2.create_cloud_xyz32(header, points.tolist())
+            self.cloud_pub.publish(cloud_msg)
+        except Exception as e:
+            self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
+
+    def convert_map_to_pcl(self, output_path):
+        """Convert the entire map to a PCL file."""
+        all_points = []
+
+        for snapshot_id, snapshot in self.snapshots.items():
+            if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:  # Check if point_cloud has data
+                try:
+                    points = np.frombuffer(snapshot.point_cloud.data, dtype=np.float32).reshape(-1, 3)
+                    all_points.append(points)
+                    self.get_logger().info(f"Processed snapshot {snapshot_id} with {len(points)} points.")
+                except Exception as e:
+                    self.get_logger().error(f"Failed to process snapshot {snapshot_id}: {e}")
+
+        if all_points:
+            try:
+                all_points = np.vstack(all_points)
+
+                # Convert to Open3D point cloud and save as PCD
+                pcl_cloud = o3d.geometry.PointCloud()
+                pcl_cloud.points = o3d.utility.Vector3dVector(all_points)
+
+                pcl_output_file = os.path.join(output_path, "graph_nav_map.pcd")
+                o3d.io.write_point_cloud(pcl_output_file, pcl_cloud)
+                self.get_logger().info(f"Saved PCL file to {pcl_output_file}")
+            except Exception as e:
+                self.get_logger().error(f"Failed to save PCL file: {e}")
+        else:
+            self.get_logger().warning("No point cloud data found to save as PCL file.")
 
 
 def main():
