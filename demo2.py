@@ -9,6 +9,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Header
 
 class GraphNavToRviz(Node):
     def __init__(self, map_path):
@@ -127,8 +128,13 @@ class GraphNavToRviz(Node):
     def publish_point_cloud(self, cloud_data):
         """Convert a Numpy point cloud to a PointCloud2 message and publish."""
         points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
-        header = self.get_clock().now().to_msg()
+
+        # Create a Header object with frame_id and timestamp
+        header = Header()
+        header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "map"
+
+        # Create and publish the PointCloud2 message
         cloud_msg = point_cloud2.create_cloud_xyz32(header, points.tolist())
         self.cloud_pub.publish(cloud_msg)
 
