@@ -10,6 +10,7 @@ from geometry_msgs.msg import Point
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
+import pcl
 
 class GraphNavToRviz(Node):
     def __init__(self, map_path):
@@ -20,6 +21,7 @@ class GraphNavToRviz(Node):
         self.get_logger().info(f"Loading map from {map_path}")
         self.graph, self.waypoints, self.snapshots, self.edges = self.load_map(map_path)
         self.visualize_graph()
+        self.convert_map_to_pcl(map_path)
 
     def load_map(self, path):
         """Load the map data from the provided directory."""
@@ -137,6 +139,26 @@ class GraphNavToRviz(Node):
         # Create and publish the PointCloud2 message
         cloud_msg = point_cloud2.create_cloud_xyz32(header, points.tolist())
         self.cloud_pub.publish(cloud_msg)
+
+    def convert_map_to_pcl(self, output_path):
+        """Convert the entire map to a PCL file."""
+        pcl_cloud = pcl.PointCloud()
+        all_points = []
+
+        for snapshot_id, snapshot in self.snapshots.items():
+            if hasattr(snapshot, 'point_cloud'):
+                points = np.frombuffer(snapshot.point_cloud.data, dtype=np.float32).reshape(-1, 3)
+                all_points.append(points)
+
+        if all_points:
+            all_points = np.vstack(all_points)
+            pcl_cloud.from_array(all_points.astype(np.float32))
+
+            pcl_output_file = os.path.join(output_path, "graph_nav_map.pcd")
+            pcl.save(pcl_cloud, pcl_output_file)
+            self.get_logger().info(f"Saved PCL file to {pcl_output_file}")
+        else:
+            self.get_logger().warning("No point cloud data found to save as PCL file.")
 
 
 def main():
