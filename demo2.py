@@ -128,13 +128,20 @@ class GraphNavToRviz(Node):
             self.marker_pub.publish(marker_array)
 
             # Visualize point clouds
-            for snapshot_id, snapshot in self.snapshots.items():
-                if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:  # Check if point_cloud exists and has data
-                    self.publish_point_cloud(snapshot.point_cloud, snapshot_id)
+            asyncio.run(self.batch_publish_point_clouds())
         except Exception as e:
             self.get_logger().error(f"Error in visualize_graph: {e}")
 
-    async def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=1000):
+    async def batch_publish_point_clouds(self):
+        """Publish point clouds in batches to manage memory usage."""
+        try:
+            for snapshot_id, snapshot in self.snapshots.items():
+                if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
+                    await self.publish_point_cloud(snapshot.point_cloud, snapshot_id, batch_size=5000)
+        except Exception as e:
+            self.get_logger().error(f"Error in batch publishing point clouds: {e}")
+
+    async def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=5000):
         """Convert a Numpy point cloud to a PointCloud2 message and publish in batches."""
         try:
             points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
@@ -210,12 +217,10 @@ def main():
     node = GraphNavToRviz(args.map_path)
 
     # Use asyncio for point cloud publishing
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(rclpy.spin(node))
+    rclpy.spin(node)
 
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
