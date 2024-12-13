@@ -133,33 +133,43 @@ class GraphNavToRviz(Node):
         except Exception as e:
             self.get_logger().error(f"Error in visualize_graph: {e}")
 
-    def publish_point_cloud(self, cloud_data, snapshot_id):
-        """Convert a Numpy point cloud to a PointCloud2 message and publish."""
+    def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=1000):
+        """Convert a Numpy point cloud to a PointCloud2 message and publish in batches."""
         try:
             points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
-            self.get_logger().info(f"Publishing point cloud for snapshot {snapshot_id} with {len(points)} points.")
+            total_points = len(points)
 
-            # Create a Header object with frame_id and timestamp
-            header = Header()
-            header.stamp = self.get_clock().now().to_msg()
-            header.frame_id = "map"
+            for start_idx in range(0, total_points, batch_size):
+                end_idx = min(start_idx + batch_size, total_points)
+                batch_points = points[start_idx:end_idx]
 
-            # Create and publish the PointCloud2 message
-            cloud_msg = point_cloud2.create_cloud_xyz32(header, points.tolist())
-            self.cloud_pub.publish(cloud_msg)
+                self.get_logger().info(f"Publishing point cloud batch for snapshot {snapshot_id} with {len(batch_points)} points.")
+
+                # Create a Header object with frame_id and timestamp
+                header = Header()
+                header.stamp = self.get_clock().now().to_msg()
+                header.frame_id = "map"
+
+                # Create and publish the PointCloud2 message
+                cloud_msg = point_cloud2.create_cloud_xyz32(header, batch_points.tolist())
+                self.cloud_pub.publish(cloud_msg)
         except Exception as e:
             self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
 
-    def convert_map_to_pcl(self, output_path):
-        """Convert the entire map to a PCL file."""
+    def convert_map_to_pcl(self, output_path, batch_size=50000):
+        """Convert the entire map to a PCL file in batches."""
         all_points = []
 
         for snapshot_id, snapshot in self.snapshots.items():
             if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:  # Check if point_cloud has data
                 try:
                     points = np.frombuffer(snapshot.point_cloud.data, dtype=np.float32).reshape(-1, 3)
-                    all_points.append(points)
-                    self.get_logger().info(f"Processed snapshot {snapshot_id} with {len(points)} points.")
+
+                    for start_idx in range(0, len(points), batch_size):
+                        batch_points = points[start_idx:start_idx + batch_size]
+                        all_points.append(batch_points)
+
+                    self.get_logger().info(f"Processed snapshot {snapshot_id} with {len(points)} points in batches.")
                 except Exception as e:
                     self.get_logger().error(f"Failed to process snapshot {snapshot_id}: {e}")
 
@@ -181,7 +191,6 @@ class GraphNavToRviz(Node):
                 self.get_logger().error(f"Failed to save PCL file: {e}")
         else:
             self.get_logger().warning("No point cloud data found to save as PCL file.")
-
 
 def main():
     rclpy.init()
