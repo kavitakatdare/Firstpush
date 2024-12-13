@@ -10,7 +10,7 @@ from geometry_msgs.msg import Point
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
-import pcl
+import open3d as o3d
 
 class GraphNavToRviz(Node):
     def __init__(self, map_path):
@@ -142,7 +142,6 @@ class GraphNavToRviz(Node):
 
     def convert_map_to_pcl(self, output_path):
         """Convert the entire map to a PCL file."""
-        pcl_cloud = pcl.PointCloud()
         all_points = []
 
         for snapshot_id, snapshot in self.snapshots.items():
@@ -152,10 +151,13 @@ class GraphNavToRviz(Node):
 
         if all_points:
             all_points = np.vstack(all_points)
-            pcl_cloud.from_array(all_points.astype(np.float32))
+
+            # Convert to Open3D point cloud and save as PCD
+            pcl_cloud = o3d.geometry.PointCloud()
+            pcl_cloud.points = o3d.utility.Vector3dVector(all_points)
 
             pcl_output_file = os.path.join(output_path, "graph_nav_map.pcd")
-            pcl.save(pcl_cloud, pcl_output_file)
+            o3d.io.write_point_cloud(pcl_output_file, pcl_cloud)
             self.get_logger().info(f"Saved PCL file to {pcl_output_file}")
         else:
             self.get_logger().warning("No point cloud data found to save as PCL file.")
