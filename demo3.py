@@ -22,7 +22,7 @@ class GraphNavToRviz(Node):
         self.get_logger().info(f"Loading map from {map_path}")
         try:
             self.graph, self.waypoints, self.snapshots, self.edges = self.load_map(map_path)
-            self.visualize_graph()
+            asyncio.run(self.visualize_graph())
             self.convert_map_to_pcl(map_path)
         except Exception as e:
             self.get_logger().error(f"Error during initialization: {e}")
@@ -68,7 +68,7 @@ class GraphNavToRviz(Node):
 
         return graph, {wp.id: wp for wp in graph.waypoints}, snapshots, edges
 
-    def visualize_graph(self):
+    async def visualize_graph(self):
         """Publish GraphNav map data as Rviz markers."""
         try:
             marker_array = MarkerArray()
@@ -128,7 +128,7 @@ class GraphNavToRviz(Node):
             self.marker_pub.publish(marker_array)
 
             # Visualize point clouds
-            asyncio.run(self.batch_publish_point_clouds())
+            await self.batch_publish_point_clouds()
         except Exception as e:
             self.get_logger().error(f"Error in visualize_graph: {e}")
 
@@ -137,11 +137,11 @@ class GraphNavToRviz(Node):
         try:
             for snapshot_id, snapshot in self.snapshots.items():
                 if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
-                    await self.publish_point_cloud(snapshot.point_cloud, snapshot_id, batch_size=5000)
+                    await self.publish_point_cloud(snapshot.point_cloud, snapshot_id, batch_size=1000)
         except Exception as e:
             self.get_logger().error(f"Error in batch publishing point clouds: {e}")
 
-    async def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=5000):
+    async def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=1000):
         """Convert a Numpy point cloud to a PointCloud2 message and publish in batches."""
         try:
             points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
@@ -163,12 +163,12 @@ class GraphNavToRviz(Node):
                 self.cloud_pub.publish(cloud_msg)
 
                 # Add a small delay to prevent system overload
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.2)
 
         except Exception as e:
             self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
 
-    def convert_map_to_pcl(self, output_path, batch_size=50000):
+    def convert_map_to_pcl(self, output_path, batch_size=5000):
         """Convert the entire map to a PCL file in batches."""
         all_points = []
 
