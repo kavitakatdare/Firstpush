@@ -137,12 +137,12 @@ class GraphNavToRviz(Node):
         try:
             for snapshot_id, snapshot in self.snapshots.items():
                 if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
-                    await self.publish_point_cloud(snapshot.point_cloud, snapshot_id, batch_size=500)
-                    await asyncio.sleep(0.5)  # 0.5-second delay after processing each snapshot
+                    await self.publish_point_cloud(snapshot.point_cloud, snapshot_id, batch_size=1000)
+                    await asyncio.sleep(0.2)  # Reduced delay to speed up processing
         except Exception as e:
             self.get_logger().error(f"Error in batch publishing point clouds: {e}")
 
-    async def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=500):
+    async def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=1000):
         """Convert a Numpy point cloud to a PointCloud2 message and publish in batches."""
         try:
             points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
@@ -164,12 +164,12 @@ class GraphNavToRviz(Node):
                 self.cloud_pub.publish(cloud_msg)
 
                 # Add a small delay to prevent system overload
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
 
         except Exception as e:
             self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
 
-    def convert_map_to_pcl(self, output_path, batch_size=500):
+    def convert_map_to_pcl(self, output_path, batch_size=1000):
         """Convert the entire map to a PCL file in batches."""
         all_points = []
 
@@ -182,9 +182,9 @@ class GraphNavToRviz(Node):
                         batch_points = points[start_idx:start_idx + batch_size]
                         all_points.append(batch_points)
 
-                        # Introduce a delay for memory stability
+                        # Introduce a small delay for stability
                         self.get_logger().info(f"Processing batch from snapshot {snapshot_id}")
-                        asyncio.sleep(0.5)
+                        asyncio.sleep(0.2)
 
                     self.get_logger().info(f"Processed snapshot {snapshot_id} with {len(points)} points in batches.")
                 except Exception as e:
