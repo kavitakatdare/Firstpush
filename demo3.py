@@ -20,8 +20,12 @@ class GraphNavToRviz(Node):
 
         self.get_logger().info(f"Loading map from {map_path}")
         self.graph, self.waypoints, self.snapshots, self.edges = self.load_map(map_path)
-        self.visualize_graph()
-        self.convert_map_to_pcl(map_path)
+
+        try:
+            self.visualize_graph()
+            self.convert_map_to_pcl(map_path)
+        except Exception as e:
+            self.get_logger().error(f"Error during visualization or PCL conversion: {e}")
 
     def load_map(self, path):
         """Load the map data from the provided directory."""
@@ -125,12 +129,13 @@ class GraphNavToRviz(Node):
         # Visualize point clouds
         for snapshot_id, snapshot in self.snapshots.items():
             if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:  # Check if point_cloud exists and has data
-                self.publish_point_cloud(snapshot.point_cloud)
+                self.publish_point_cloud(snapshot.point_cloud, snapshot_id)
 
-    def publish_point_cloud(self, cloud_data):
+    def publish_point_cloud(self, cloud_data, snapshot_id):
         """Convert a Numpy point cloud to a PointCloud2 message and publish."""
         try:
             points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
+            self.get_logger().info(f"Publishing point cloud for snapshot {snapshot_id} with {len(points)} points.")
 
             # Create a Header object with frame_id and timestamp
             header = Header()
@@ -141,7 +146,7 @@ class GraphNavToRviz(Node):
             cloud_msg = point_cloud2.create_cloud_xyz32(header, points.tolist())
             self.cloud_pub.publish(cloud_msg)
         except Exception as e:
-            self.get_logger().error(f"Failed to publish point cloud: {e}")
+            self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
 
     def convert_map_to_pcl(self, output_path):
         """Convert the entire map to a PCL file."""
@@ -152,6 +157,7 @@ class GraphNavToRviz(Node):
                 try:
                     points = np.frombuffer(snapshot.point_cloud.data, dtype=np.float32).reshape(-1, 3)
                     all_points.append(points)
+                    self.get_logger().info(f"Processed snapshot {snapshot_id} with {len(points)} points.")
                 except Exception as e:
                     self.get_logger().error(f"Failed to process snapshot {snapshot_id}: {e}")
 
