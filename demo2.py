@@ -11,6 +11,7 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 import open3d as o3d
+import asyncio
 
 class GraphNavToRviz(Node):
     def __init__(self, map_path):
@@ -133,7 +134,7 @@ class GraphNavToRviz(Node):
         except Exception as e:
             self.get_logger().error(f"Error in visualize_graph: {e}")
 
-    def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=1000):
+    async def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=1000):
         """Convert a Numpy point cloud to a PointCloud2 message and publish in batches."""
         try:
             points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
@@ -153,6 +154,10 @@ class GraphNavToRviz(Node):
                 # Create and publish the PointCloud2 message
                 cloud_msg = point_cloud2.create_cloud_xyz32(header, batch_points.tolist())
                 self.cloud_pub.publish(cloud_msg)
+
+                # Add a small delay to prevent system overload
+                await asyncio.sleep(0.1)
+
         except Exception as e:
             self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
 
@@ -203,7 +208,11 @@ def main():
 
     # Run the node
     node = GraphNavToRviz(args.map_path)
-    rclpy.spin(node)
+
+    # Use asyncio for point cloud publishing
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(rclpy.spin(node))
+
     node.destroy_node()
     rclpy.shutdown()
 
