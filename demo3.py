@@ -11,6 +11,7 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 import open3d as o3d
+import gc
 
 class GraphNavToRviz(Node):
     def __init__(self, map_path):
@@ -136,11 +137,11 @@ class GraphNavToRviz(Node):
         try:
             for snapshot_id, snapshot in self.snapshots.items():
                 if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
-                    self.publish_point_cloud(snapshot.point_cloud, snapshot_id, batch_size=500)
+                    self.publish_point_cloud(snapshot.point_cloud, snapshot_id, batch_size=100)
         except Exception as e:
             self.get_logger().error(f"Error in batch publishing point clouds: {e}")
 
-    def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=500):
+    def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=100):
         """Convert a Numpy point cloud to a PointCloud2 message and publish in batches."""
         try:
             points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
@@ -161,6 +162,7 @@ class GraphNavToRviz(Node):
                 cloud_msg = point_cloud2.create_cloud_xyz32(header, batch_points.tolist())
                 self.cloud_pub.publish(cloud_msg)
                 rclpy.spin_once(self, timeout_sec=0.1)  # Allow time for processing
+                gc.collect()  # Force garbage collection to manage memory
 
         except Exception as e:
             self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
