@@ -25,10 +25,9 @@ class GraphNavToRviz(Node):
         try:
             self.graph, self.waypoints, self.snapshots, self.edges = self.load_map(map_path)
             self.visualize_graph()
-            self.convert_map_to_pcl(map_path)
 
             # Timer for periodic publishing of accumulated points
-            self.create_timer(5.0, self.publish_accumulated_point_cloud)
+            self.create_timer(10.0, self.publish_accumulated_point_cloud)
         except Exception as e:
             self.get_logger().error(f"Error during initialization: {e}")
 
@@ -130,7 +129,7 @@ class GraphNavToRviz(Node):
             for snapshot_id, snapshot in self.snapshots.items():
                 if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
                     self.accumulate_point_cloud(snapshot.point_cloud, snapshot_id)
-                    time.sleep(1.0)  # Increased delay to avoid overloading RViz
+                    time.sleep(2.0)  # Further increased delay to avoid overloading RViz
                     gc.collect()
         except Exception as e:
             self.get_logger().error(f"Error in batch publishing point clouds: {e}")
@@ -159,36 +158,12 @@ class GraphNavToRviz(Node):
             self.cloud_pub.publish(cloud_msg)
             self.get_logger().info(f"Published accumulated point cloud with {len(all_points)} points.")
 
+            # Throttle accumulation to avoid excessive memory use
+            if len(all_points) > 1e6:
+                self.accumulated_points = [all_points[-100000:]]  # Keep only the latest points
+
         except Exception as e:
             self.get_logger().error(f"Failed to publish accumulated point cloud: {e}")
-
-    def convert_map_to_pcl(self, output_path):
-        all_points = []
-
-        for snapshot_id, snapshot in self.snapshots.items():
-            if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
-                try:
-                    points = np.frombuffer(snapshot.point_cloud.data, dtype=np.float32).reshape(-1, 3)
-                    all_points.append(points)
-                    self.get_logger().info(f"Processed snapshot {snapshot_id} with {len(points)} points.")
-                except Exception as e:
-                    self.get_logger().error(f"Failed to process snapshot {snapshot_id}: {e}")
-
-        if all_points:
-            try:
-                all_points = np.vstack(all_points)
-
-                o3d_cloud = o3d.geometry.PointCloud()
-                o3d_cloud.points = o3d.utility.Vector3dVector(all_points)
-
-                pcl_output_file = os.path.join(output_path, "graph_nav_map.pcd")
-                o3d.io.write_point_cloud(pcl_output_file, o3d_cloud)
-                self.get_logger().info(f"Saved Open3D PCD file to {pcl_output_file}")
-
-            except Exception as e:
-                self.get_logger().error(f"Failed to save PCD file: {e}")
-        else:
-            self.get_logger().warning("No point cloud data found to save as PCD file.")
 
 def main():
     rclpy.init()
