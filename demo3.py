@@ -25,6 +25,9 @@ class GraphNavToRviz(Node):
             self.graph, self.waypoints, self.snapshots, self.edges = self.load_map(map_path)
             self.visualize_graph()
             self.convert_map_to_pcl(map_path)
+
+            # Timer for periodic publishing of accumulated points
+            self.create_timer(1.0, self.publish_accumulated_point_cloud)
         except Exception as e:
             self.get_logger().error(f"Error during initialization: {e}")
 
@@ -140,8 +143,7 @@ class GraphNavToRviz(Node):
                 if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
                     self.accumulate_point_cloud(snapshot.point_cloud, snapshot_id)
 
-            # Publish the accumulated point cloud
-            self.publish_accumulated_point_cloud()
+            # Accumulated point cloud will be periodically published by the timer
         except Exception as e:
             self.get_logger().error(f"Error in batch publishing point clouds: {e}")
 
