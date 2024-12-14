@@ -160,6 +160,7 @@ class GraphNavToRviz(Node):
                 # Create and publish the PointCloud2 message
                 cloud_msg = point_cloud2.create_cloud_xyz32(header, batch_points.tolist())
                 self.cloud_pub.publish(cloud_msg)
+                rclpy.spin_once(self, timeout_sec=0.1)  # Allow time for processing
 
         except Exception as e:
             self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
