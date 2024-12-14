@@ -165,7 +165,7 @@ class GraphNavToRviz(Node):
             self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
 
     def convert_map_to_pcl(self, output_path):
-        """Convert the entire map to a PCL file."""
+        """Convert the entire map to a PCL file using Open3D."""
         all_points = []
 
         for snapshot_id, snapshot in self.snapshots.items():
@@ -188,7 +188,7 @@ class GraphNavToRviz(Node):
 
                 pcl_output_file = os.path.join(output_path, "graph_nav_map.pcd")
                 o3d.io.write_point_cloud(pcl_output_file, o3d_cloud)
-                self.get_logger().info(f"Saved PCD file to {pcl_output_file}")
+                self.get_logger().info(f"Saved Open3D PCD file to {pcl_output_file}")
 
             except Exception as e:
                 self.get_logger().error(f"Failed to save PCD file: {e}")
