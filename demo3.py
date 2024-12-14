@@ -12,13 +12,14 @@ from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 import open3d as o3d
 import gc
+import time
 
 class GraphNavToRviz(Node):
     def __init__(self, map_path):
         super().__init__('graph_nav_to_rviz')
         self.marker_pub = self.create_publisher(MarkerArray, 'graph_nav_map', 10)
         self.cloud_pub = self.create_publisher(PointCloud2, 'graph_nav_cloud', 10)
-        self.accumulated_points = []  # To accumulate all points
+        self.accumulated_points = []
 
         self.get_logger().info(f"Loading map from {map_path}")
         try:
@@ -32,10 +33,7 @@ class GraphNavToRviz(Node):
             self.get_logger().error(f"Error during initialization: {e}")
 
     def load_map(self, path):
-        """Load the map data from the provided directory."""
         graph = map_pb2.Graph()
-
-        # Load the graph
         graph_file = os.path.join(path, 'graph')
         if not os.path.exists(graph_file):
             self.get_logger().error(f"Graph file not found at {graph_file}")
@@ -46,7 +44,6 @@ class GraphNavToRviz(Node):
             graph.ParseFromString(gf.read())
         self.get_logger().info(f"Loaded graph with {len(graph.waypoints)} waypoints and {len(graph.edges)} edges.")
 
-        # Load waypoint snapshots
         snapshots = {}
         for waypoint in graph.waypoints:
             if waypoint.snapshot_id:
@@ -58,7 +55,6 @@ class GraphNavToRviz(Node):
                         snapshots[snapshot.id] = snapshot
         self.get_logger().info(f"Loaded {len(snapshots)} waypoint snapshots.")
 
-        # Load edge snapshots
         edges = {}
         for edge in graph.edges:
             if edge.snapshot_id:
@@ -73,12 +69,10 @@ class GraphNavToRviz(Node):
         return graph, {wp.id: wp for wp in graph.waypoints}, snapshots, edges
 
     def visualize_graph(self):
-        """Publish GraphNav map data as Rviz markers."""
         try:
             marker_array = MarkerArray()
             marker_id = 0
 
-            # Visualize waypoints
             for waypoint_id, waypoint in self.waypoints.items():
                 pose = SE3Pose.from_proto(waypoint.waypoint_tform_ko)
                 marker = Marker()
@@ -101,7 +95,6 @@ class GraphNavToRviz(Node):
                 marker.color.a = 1.0
                 marker_array.markers.append(marker)
 
-            # Visualize edges
             for edge in self.graph.edges:
                 from_wp = self.waypoints[edge.id.from_waypoint]
                 to_wp = self.waypoints[edge.id.to_waypoint]
@@ -123,42 +116,34 @@ class GraphNavToRviz(Node):
                 marker.color.b = 1.0
                 marker.color.a = 1.0
 
-                # Add points for the edge
                 marker.points.append(Point(x=from_pose.x, y=from_pose.y, z=from_pose.z))
                 marker.points.append(Point(x=to_pose.x, y=to_pose.y, z=to_pose.z))
                 marker_array.markers.append(marker)
 
-            # Publish markers
             self.marker_pub.publish(marker_array)
-
-            # Visualize point clouds
             self.batch_publish_point_clouds()
         except Exception as e:
             self.get_logger().error(f"Error in visualize_graph: {e}")
 
     def batch_publish_point_clouds(self):
-        """Publish point clouds in batches to manage memory usage."""
         try:
             for snapshot_id, snapshot in self.snapshots.items():
                 if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
                     self.accumulate_point_cloud(snapshot.point_cloud, snapshot_id)
-
-            # Accumulated point cloud will be periodically published by the timer
+                    time.sleep(0.2)
+                    gc.collect()
         except Exception as e:
             self.get_logger().error(f"Error in batch publishing point clouds: {e}")
 
     def accumulate_point_cloud(self, cloud_data, snapshot_id):
-        """Accumulate point cloud data for a single snapshot."""
         try:
             points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
             self.accumulated_points.append(points)
-
             self.get_logger().info(f"Accumulated point cloud for snapshot {snapshot_id} with {len(points)} points.")
         except Exception as e:
             self.get_logger().error(f"Failed to accumulate point cloud for snapshot {snapshot_id}: {e}")
 
     def publish_accumulated_point_cloud(self):
-        """Publish the accumulated point cloud as a single PointCloud2 message."""
         try:
             if not self.accumulated_points:
                 self.get_logger().warning("No point cloud data to publish.")
@@ -166,12 +151,10 @@ class GraphNavToRviz(Node):
 
             all_points = np.vstack(self.accumulated_points)
 
-            # Create a Header object with frame_id and timestamp
             header = Header()
             header.stamp = self.get_clock().now().to_msg()
             header.frame_id = "map"
 
-            # Create and publish the PointCloud2 message
             cloud_msg = point_cloud2.create_cloud_xyz32(header, all_points.tolist())
             self.cloud_pub.publish(cloud_msg)
             self.get_logger().info(f"Published accumulated point cloud with {len(all_points)} points.")
@@ -180,15 +163,13 @@ class GraphNavToRviz(Node):
             self.get_logger().error(f"Failed to publish accumulated point cloud: {e}")
 
     def convert_map_to_pcl(self, output_path):
-        """Convert the entire map to a PCL file using Open3D."""
         all_points = []
 
         for snapshot_id, snapshot in self.snapshots.items():
-            if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:  # Check if point_cloud has data
+            if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
                 try:
                     points = np.frombuffer(snapshot.point_cloud.data, dtype=np.float32).reshape(-1, 3)
                     all_points.append(points)
-
                     self.get_logger().info(f"Processed snapshot {snapshot_id} with {len(points)} points.")
                 except Exception as e:
                     self.get_logger().error(f"Failed to process snapshot {snapshot_id}: {e}")
@@ -197,7 +178,6 @@ class GraphNavToRviz(Node):
             try:
                 all_points = np.vstack(all_points)
 
-                # Convert to Open3D point cloud and save as PCD
                 o3d_cloud = o3d.geometry.PointCloud()
                 o3d_cloud.points = o3d.utility.Vector3dVector(all_points)
 
@@ -213,13 +193,11 @@ class GraphNavToRviz(Node):
 def main():
     rclpy.init()
 
-    # Parse the map path argument
     import argparse
     parser = argparse.ArgumentParser(description="Visualize GraphNav map in Rviz2.")
     parser.add_argument('map_path', type=str, help='Path to the GraphNav map directory.')
     args = parser.parse_args()
 
-    # Run the node
     node = GraphNavToRviz(args.map_path)
     rclpy.spin(node)
 
