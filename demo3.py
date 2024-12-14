@@ -18,6 +18,7 @@ class GraphNavToRviz(Node):
         super().__init__('graph_nav_to_rviz')
         self.marker_pub = self.create_publisher(MarkerArray, 'graph_nav_map', 10)
         self.cloud_pub = self.create_publisher(PointCloud2, 'graph_nav_cloud', 10)
+        self.accumulated_points = []  # To accumulate all points
 
         self.get_logger().info(f"Loading map from {map_path}")
         try:
@@ -137,35 +138,44 @@ class GraphNavToRviz(Node):
         try:
             for snapshot_id, snapshot in self.snapshots.items():
                 if hasattr(snapshot, 'point_cloud') and snapshot.point_cloud.data:
-                    self.publish_point_cloud(snapshot.point_cloud, snapshot_id, batch_size=100)
+                    self.accumulate_point_cloud(snapshot.point_cloud, snapshot_id)
+
+            # Publish the accumulated point cloud
+            self.publish_accumulated_point_cloud()
         except Exception as e:
             self.get_logger().error(f"Error in batch publishing point clouds: {e}")
 
-    def publish_point_cloud(self, cloud_data, snapshot_id, batch_size=100):
-        """Convert a Numpy point cloud to a PointCloud2 message and publish in batches."""
+    def accumulate_point_cloud(self, cloud_data, snapshot_id):
+        """Accumulate point cloud data for a single snapshot."""
         try:
             points = np.frombuffer(cloud_data.data, dtype=np.float32).reshape(-1, 3)
-            total_points = len(points)
+            self.accumulated_points.append(points)
 
-            for start_idx in range(0, total_points, batch_size):
-                end_idx = min(start_idx + batch_size, total_points)
-                batch_points = points[start_idx:end_idx]
+            self.get_logger().info(f"Accumulated point cloud for snapshot {snapshot_id} with {len(points)} points.")
+        except Exception as e:
+            self.get_logger().error(f"Failed to accumulate point cloud for snapshot {snapshot_id}: {e}")
 
-                self.get_logger().info(f"Publishing point cloud batch for snapshot {snapshot_id} with {len(batch_points)} points.")
+    def publish_accumulated_point_cloud(self):
+        """Publish the accumulated point cloud as a single PointCloud2 message."""
+        try:
+            if not self.accumulated_points:
+                self.get_logger().warning("No point cloud data to publish.")
+                return
 
-                # Create a Header object with frame_id and timestamp
-                header = Header()
-                header.stamp = self.get_clock().now().to_msg()
-                header.frame_id = "map"
+            all_points = np.vstack(self.accumulated_points)
 
-                # Create and publish the PointCloud2 message
-                cloud_msg = point_cloud2.create_cloud_xyz32(header, batch_points.tolist())
-                self.cloud_pub.publish(cloud_msg)
-                rclpy.spin_once(self, timeout_sec=0.1)  # Allow time for processing
-                gc.collect()  # Force garbage collection to manage memory
+            # Create a Header object with frame_id and timestamp
+            header = Header()
+            header.stamp = self.get_clock().now().to_msg()
+            header.frame_id = "map"
+
+            # Create and publish the PointCloud2 message
+            cloud_msg = point_cloud2.create_cloud_xyz32(header, all_points.tolist())
+            self.cloud_pub.publish(cloud_msg)
+            self.get_logger().info(f"Published accumulated point cloud with {len(all_points)} points.")
 
         except Exception as e:
-            self.get_logger().error(f"Failed to publish point cloud for snapshot {snapshot_id}: {e}")
+            self.get_logger().error(f"Failed to publish accumulated point cloud: {e}")
 
     def convert_map_to_pcl(self, output_path):
         """Convert the entire map to a PCL file using Open3D."""
