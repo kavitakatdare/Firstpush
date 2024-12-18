@@ -89,3 +89,85 @@ bash
 Copy code
 ros2 service call /list_graph std_srvs/srv/Trigger "{}"
 These steps should help you successfully localize Spot in a GraphNav map. Let me know if you need more details!
+
+
+
+
+
+config.yaml
+
+/**:
+  ros__parameters:
+    # Spot Login Information
+    username: "user"
+    password: "password"
+    hostname: "10.0.0.3"
+
+    # Status Updates from Spot
+    metrics_rate: 0.04          # Hz for publishing metrics data
+    lease_rate: 1.0             # Hz for publishing lease data
+    async_tasks_rate: 10.0      # Hz for periodic async tasks
+
+    # Mobility Parameters
+    cmd_duration: 0.25          # Duration of cmd_vel commands
+    max_velocity:               # Maximum velocity for Spot
+      linear_x: 1.0
+      linear_y: 1.0
+      angular_z: 1.0
+    stair_mode: False           # Enable/disable stair mode
+    locomotion_mode: "trot"     # Locomotion mode (e.g., trot, crawl, etc.)
+
+    # Some boolean parameters
+    auto_claim: False           # Automatically claim lease on startup
+    auto_power_on: False        # Power on Spot on startup
+    auto_stand: False           # Make Spot stand on startup
+    continually_try_stand: False  # Retry standing if Spot falls
+
+    # Estop Parameters
+    estop_timeout: 9.0          # Timeout (seconds) for emergency stop
+    start_estop: False          # Start with emergency stop engaged
+
+    # Preferred Frame Parameters
+    preferred_odom_frame: "odom" # Options: odom, vision
+    tf_root: "odom"              # Use odom, vision, or body for the TF tree root frame
+    frame_prefix: "spot"         # Prefix for TF frames
+    tf_name_graph_nav_body: "spot/body"
+
+    # RGB Cameras and SpotCam
+    rgb_cameras: True            # Use RGB cameras
+    initialize_spot_cam: False   # Initialize Spot CAM module
+    cameras_used:                # Uncomment and specify to use certain cameras
+    # - "frontleft"
+    # - "frontright"
+    # - "left"
+    # - "right"
+    # - "back"
+    # - "hand"
+
+    # Gripper Configuration
+    gripperless: False           # Set True if Spot lacks a gripper
+
+    # GraphNav Settings
+    publish_graph_nav_pose: True          # Enable publishing GraphNav localization pose
+    graph_nav_seed_frame: "graph_nav_map" # Frame used for GraphNav map
+    graph_nav_pose_rate: 10.0             # Hz for publishing GraphNav localization poses
+    graph_nav_map_path: "/path/to/graphnav_map"  # Path to GraphNav map
+    graph_nav_initial_localization_waypoint: "waypoint_id"  # Initial waypoint for localization
+
+    # Choreography and Animation
+    choreography:
+      enable: True                # Enable choreography functionality
+      default_dance: "wave"       # Default dance sequence
+      default_moves: ["step_left", "step_right"]  # List of default moves
+
+    # Virtual Camera Parameters (For Image Stitching)
+    virtual_camera_intrinsics: [385.0, 0.0, 315.0, 0.0, 385.0, 844.0, 0.0, 0.0, 1.0]
+    virtual_camera_projection_plane: [-0.15916, 0.0, 0.987253]
+    virtual_camera_plane_distance: 0.5
+    stitched_image_row_padding: 1182
+
+    # Data Publishing Rates
+    world_objects_rate: 20.0     # Hz for publishing world object data
+
+    # Logging and Debugging
+    log_level: "info"            # Logging verbosity level
